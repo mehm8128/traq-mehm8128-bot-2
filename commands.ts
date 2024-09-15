@@ -1,4 +1,5 @@
 import { Api } from "traq-bot-ts"
+import { match, P } from "ts-pattern"
 
 const api = new Api({
 	baseApiParams: { headers: { Authorization: `Bearer ${process.env.TOKEN}` } }
@@ -7,23 +8,20 @@ const api = new Api({
 const delay = (n: number) =>
 	new Promise(resolve => setTimeout(resolve, n * 1000))
 
-const toGrass = (num: number) => {
-	if (num === 0) {
-		return ":0xebedf0:"
-	}
-	if (1 <= num && num < 5) {
-		return ":0x9be9a8:"
-	}
-	if (5 <= num && num < 15) {
-		return ":0x40c463:"
-	}
-	if (15 <= num && num < 30) {
-		return ":0x30a14e:"
-	}
-	if (30 <= num) {
-		return ":0x216e39:"
-	}
-	return ":null:"
+const toGrass = (num: number) =>
+	match(num)
+		.with(0, () => ":0xebedf0:")
+		.with(P.number.between(1, 4), () => ":0x9be9a8:")
+		.with(P.number.between(5, 14), () => ":0x40c463:")
+		.with(P.number.between(15, 29), () => ":0x30a14e:")
+		.with(P.number.gte(30), () => ":0x216e39:")
+		.otherwise(() => ":null:")
+
+interface WSeed {
+	borderDate: Date
+	youbi: number
+	/** 1:sinceを指定, -1:untilを指定 */
+	mode: 0 | 1
 }
 
 export const w = async ({
@@ -39,44 +37,47 @@ export const w = async ({
 	const untilArr = plainText.match(/until:(\d{4}-\d{2}-\d{2})/)
 	const usernameArr = plainText.match(/user:([a-zA-Z0-9-_]*)/)
 
-	let since: string | null = null
-	let until: string | null = null
-	let username: string | null = null
-	let borderDate = new Date()
-	let youbi = 0
-	let mode = 0
-	if (sinceArr === null && untilArr === null) {
-		//1:sinceを指定, -1:untilを指定
-		borderDate = new Date()
-		youbi = borderDate.getDay()
-		mode = -1
-	} else if (sinceArr !== null && untilArr === null) {
-		since = sinceArr[1]
-		borderDate = new Date(
-			`${since.slice(0, 4)}-${Number(since.slice(5, 7)).toString().padStart(2, "0")}-${since.slice(8)}`
-		)
-		youbi = borderDate.getDay()
-		mode = 1
-	} else if (sinceArr === null && untilArr !== null) {
-		until = untilArr[1]
-		borderDate = new Date(
-			`${until.slice(0, 4)}-${Number(until.slice(5, 7)).toString().padStart(2, "0")}-${until.slice(8)}`
-		)
-		youbi = borderDate.getDay()
-		mode = -1
-	} else if (sinceArr !== null && untilArr !== null) {
-		await api.channels.postMessage(channelId, {
-			content: "sinceとuntilをどちらも指定することはできません",
-			embed: true
+	const wSeed = await match([sinceArr, untilArr])
+		.with([null, null], () => {
+			const borderDate = new Date()
+			const youbi = borderDate.getDay()
+			const mode = -1
+			return { borderDate, youbi, mode }
 		})
-		return
-	}
+		.with([P.nonNullable, null], ([x, _]) => {
+			const since = x[1]
+			const borderDate = new Date(
+				`${since.slice(0, 4)}-${Number(since.slice(5, 7)).toString().padStart(2, "0")}-${since.slice(8)}`
+			)
+			const youbi = borderDate.getDay()
+			const mode = 1
+			return { borderDate, youbi, mode }
+		})
+		.with([null, P.nonNullable], ([_, y]) => {
+			const until = y[1]
+			const borderDate = new Date(
+				`${until.slice(0, 4)}-${Number(until.slice(5, 7)).toString().padStart(2, "0")}-${until.slice(8)}`
+			)
+			const youbi = borderDate.getDay()
+			const mode = -1
+			return { borderDate, youbi, mode }
+		})
+		.with([P._, P._], async () => {
+			await api.channels.postMessage(channelId, {
+				content: "sinceとuntilをどちらも指定することはできません",
+				embed: true
+			})
+			return undefined
+		})
+		.exhaustive()
 
-	if (usernameArr === null) {
-		username = postedUsername
-	} else {
-		username = usernameArr[1]
-	}
+	if (!wSeed) return
+	let { borderDate, youbi, mode } = wSeed
+
+	const username = match(usernameArr)
+		.with(null, () => postedUsername)
+		.with(P.nonNullable, ([x]) => x[1])
+		.exhaustive()
 
 	const { data } = await api.users.getUsers({ name: username })
 	if (data.length === 0) {
@@ -180,11 +181,17 @@ export const atcoder = async ({
 	channelId: string
 	plainText: string
 }) => {
-	const userId = plainText.split(" ")[2]
+	const userId = plainText.match(/atcoder (.+)/i)?.[1]
+	if (!userId) {
+		await api.channels.postMessage(channelId, {
+			content: "ユーザーIDを指定してください",
+			embed: true
+		})
+	}
 	const url = `https://atcoder.jp/users/${userId}/history/json`
 	const res = await fetch(url)
 	const data = await res.json()
-  const result: AtCoderResult = data.toReversed()[0]
+	const result: AtCoderResult = data.toReversed()[0]
 	await api.channels.postMessage(channelId, {
 		content: `前回参加した${result.ContestName}の結果はパフォーマンスは${result.Performance}で、レートが${result.OldRating}からに${result.NewRating}に変化しました！`
 	})

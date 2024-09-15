@@ -10,6 +10,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "traq-bot-ts": "^1.3.2"
+    "traq-bot-ts": "^1.3.2",
+    "ts-pattern": "^5.3.1"
   }
 }
