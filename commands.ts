@@ -20,8 +20,8 @@ const toGrass = (num: number) =>
 interface WSeed {
 	borderDate: Date
 	youbi: number
-	/** 1:sinceを指定, -1:untilを指定 */
-	mode: 0 | 1
+	/** 1: sinceを指定, -1: untilを指定 */
+	mode: number
 }
 
 export const w = async ({
@@ -35,9 +35,14 @@ export const w = async ({
 }) => {
 	const sinceArr = plainText.match(/since:(\d{4}-\d{2}-\d{2})/)
 	const untilArr = plainText.match(/until:(\d{4}-\d{2}-\d{2})/)
-	const usernameArr = plainText.match(/user:([a-zA-Z0-9-_]*)/)
+	const usernameArr = plainText.match(/user:([a-zA-Z0-9-_]+)/)
 
-	const wSeed = await match([sinceArr, untilArr])
+	const username = match(usernameArr)
+		.with(null, () => postedUsername)
+		.with(P.nonNullable, ([x]) => x[1])
+		.exhaustive()
+
+	const wSeed: WSeed | undefined = await match([sinceArr, untilArr])
 		.with([null, null], () => {
 			const borderDate = new Date()
 			const youbi = borderDate.getDay()
@@ -62,7 +67,7 @@ export const w = async ({
 			const mode = -1
 			return { borderDate, youbi, mode }
 		})
-		.with([P._, P._], async () => {
+		.with([P.nonNullable, P.nonNullable], async () => {
 			await api.channels.postMessage(channelId, {
 				content: "sinceとuntilをどちらも指定することはできません",
 				embed: true
@@ -73,11 +78,6 @@ export const w = async ({
 
 	if (!wSeed) return
 	let { borderDate, youbi, mode } = wSeed
-
-	const username = match(usernameArr)
-		.with(null, () => postedUsername)
-		.with(P.nonNullable, ([x]) => x[1])
-		.exhaustive()
 
 	const { data } = await api.users.getUsers({ name: username })
 	if (data.length === 0) {
@@ -117,7 +117,7 @@ export const w = async ({
 		})
 		numbers.push(data.totalHits)
 
-		await delay(0.1)
+		await delay(0.2)
 	}
 
 	if (mode === -1) {
@@ -161,7 +161,7 @@ export const w = async ({
 		}
 		responseMessage += "\n"
 	}
-	await delay(1)
+
 	await api.channels.postMessage(channelId, {
 		content: responseMessage,
 		embed: true
@@ -187,6 +187,7 @@ export const atcoder = async ({
 			content: "ユーザーIDを指定してください",
 			embed: true
 		})
+		return
 	}
 	const url = `https://atcoder.jp/users/${userId}/history/json`
 	const res = await fetch(url)
